@@ -1,0 +1,19 @@
+[Unit]
+Description=Gumpalan Auth Service
+After=network.target
+
+[Service]
+Type=simple
+User=gumpalan
+WorkingDirectory=/opt/gumpalan/svc-auth
+EnvironmentFile=/etc/gumpalan/auth.env
+ExecStart=/opt/gumpalan/svc-auth/bin/auth
+Restart=on-failure
+RestartSec=5s
+
+# Limit keamanan
+NoNewPrivileges=true
+ProtectSystem=full
+
+[Install]
+WantedBy=multi-user.target

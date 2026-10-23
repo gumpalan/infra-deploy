@@ -1,0 +1,10 @@
+# Mosquitto Broker Configuration untuk Gumpalan
+# Ditempatkan di /etc/mosquitto/conf.d/gumpalan.conf
+
+listener 1883 127.0.0.1
+allow_anonymous false
+password_file /etc/mosquitto/passwd
+
+# Catatan pembuatan pengguna:
+# sudo mosquitto_passwd -c /etc/mosquitto/passwd gumpalan_svc_iot
+# sudo mosquitto_passwd /etc/mosquitto/passwd gumpalan_clock

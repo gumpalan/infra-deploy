@@ -1,0 +1,19 @@
+[Unit]
+Description=Gumpalan IoT Service
+After=network.target mosquitto.service gumpalan-auth.service
+
+[Service]
+Type=simple
+User=gumpalan
+WorkingDirectory=/opt/gumpalan/svc-iot
+EnvironmentFile=/etc/gumpalan/iot.env
+ExecStart=/opt/gumpalan/svc-iot/bin/iot
+Restart=on-failure
+RestartSec=5s
+
+# Limit keamanan
+NoNewPrivileges=true
+ProtectSystem=full
+
+[Install]
+WantedBy=multi-user.target

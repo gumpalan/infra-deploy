@@ -1,0 +1,5 @@
+*.env
+passwd*
+*.pem
+*.key
+config.yml

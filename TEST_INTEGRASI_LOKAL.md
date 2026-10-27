@@ -45,11 +45,19 @@ go run ./cmd/auth
 ```
 
 Server berjalan di `http://127.0.0.1:8001`.
-Output normal:
 
+---
+
+## Langkah 1b — Jalankan svc-iot
+
+Buka terminal baru, jalankan:
+
+```bash
+cd ~/Documents/Gumpalan/svc-iot
+go run ./cmd/iot
 ```
-2026/xx/xx xx:xx:xx Server svc-auth berjalan di http://127.0.0.1:8001
-```
+
+Server berjalan di `http://127.0.0.1:8002` (memuat konfigurasi `config/devices.yaml` dan auto-migrate database SQLite `data/iot.db`).
 
 ---
 
@@ -164,13 +172,71 @@ Response harus `401 Unauthorized`.
 
 ---
 
+## Langkah 5 — Skenario Test Modul IoT (Kustomisasi Dashboard & MQTT)
+
+### 1. Test Endpoint REST svc-iot via curl
+
+Gunakan token perangkat yang telah disetujui (`<TOKEN>`):
+
+**Ambil daftar perangkat dan status channel:**
+```bash
+curl -s -H "Authorization: Bearer <TOKEN>" \
+  http://127.0.0.1:8080/iot/v1/devices | jq .
+```
+
+**Kirim perintah kontrol ke channel perangkat:**
+```bash
+curl -s -X POST http://127.0.0.1:8080/iot/v1/devices/lampu-kamar/command \
+  -H "Authorization: Bearer <TOKEN>" \
+  -H "Content-Type: application/json" \
+  -d '{"channel":"power","value":true}' | jq .
+```
+
+**Buat layout dashboard baru:**
+```bash
+curl -s -X POST http://127.0.0.1:8080/iot/v1/dashboards \
+  -H "Authorization: Bearer <TOKEN>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Ruang Tamu Saya",
+    "isPublic": true,
+    "layoutJson": "[{\"id\":\"w1\",\"widgetType\":\"toggle\",\"title\":\"Power Lampu\",\"deviceId\":\"lampu-kamar\",\"channelId\":\"power\"}]",
+    "deviceIds": ["lampu-kamar"]
+  }' | jq .
+```
+
+---
+
+### 2. Test Lewat UI Flutter Mobile (Blynk-Style Customization)
+
+1. Buka aplikasi Gumpalan di HP (pastikan status perangkat sudah disetujui).
+2. Di tab utama **Dashboard IoT**, saat pertama kali dibuka akan muncul state kosong:
+   - Teks: *"Dashboard IoT Belum Diatur"*.
+   - Tombol **"Atur Dashboard Baru"** dan **"Jelajahi Layout Pengguna Lain"**.
+3. Tap **"Atur Dashboard Baru"**:
+   - Masukkan nama dashboard (contoh: `Kamar & Sensor`).
+   - Aktifkan toggle *"Publikasikan Layout"* jika ingin dapat dilihat pengguna lain.
+   - Tap **"Tambah Widget"**:
+     - Pilih perangkat (misal `Sensor Ruang Tamu` atau `Lampu Kamar Tidur`).
+     - Pilih channel (misal `Suhu`, `Power Lampu`, atau `Power Kipas`).
+     - Tipe widget akan terdeteksi otomatis (Toggle untuk saklar, Slider untuk pengatur kecerahan/nilai, Gauge untuk telemetri suhu).
+     - Atur label judul widget lalu tap **"Tambahkan Widget"**.
+   - Tambahkan widget lain sesuai kebutuhan.
+   - Atur urutan posisi widget dengan drag handle di sebelah kanan.
+   - Tap **"Simpan"** di pojok kanan atas.
+4. Kanvas dashboard aktif akan langsung menampilkan widget yang baru dibuat.
+5. Tap saklar toggle atau geser slider: perintah dikirim ke MQTT broker dan state terupdate seketika via WebSocket stream (`/iot/v1/ws`).
+6. Tap ikon **Jelajahi Layout Lain** untuk melihat dan menerapkan tata letak milik pengguna lain yang memiliki akses ke perangkat yang sama.
+
+---
+
 ## Referensi Port
 
 | Komponen | Alamat             | Keterangan                        |
 | -------- | ------------------ | --------------------------------- |
 | nginx    | `127.0.0.1:8080`   | Reverse proxy, entry point utama  |
 | svc-auth | `127.0.0.1:8001`   | Backend autentikasi perangkat     |
-| svc-iot  | `127.0.0.1:8002`   | Backend IoT (belum dijalankan)    |
+| svc-iot  | `127.0.0.1:8002`   | Backend IoT, MQTT & WebSocket     |
 | Flutter  | HP Android via ADB | App shell, akses via IP LAN mesin |
 
 ---

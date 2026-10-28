@@ -252,6 +252,18 @@ curl -s -X POST http://127.0.0.1:8080/iot/v1/dashboards \
 
 ---
 
+## Referensi Perintah CLI svc-iot
+
+| Perintah | Fungsi |
+| --- | --- |
+| `go run ./cmd/iot` | Jalankan server HTTP & WebSocket :8002 |
+| `go run ./cmd/iot device list` | Tampilkan perangkat dari config YAML |
+| `go run ./cmd/iot perm list [dev_id]` | Tampilkan izin akses perangkat |
+| `go run ./cmd/iot perm grant <dev_id> <target> [--role] [--readonly]` | Beri izin akses ke user / role |
+| `go run ./cmd/iot perm revoke <perm_id>` | Cabut izin akses |
+
+---
+
 ## Troubleshooting
 
 **HP tidak bisa akses server:**

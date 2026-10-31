@@ -29,7 +29,29 @@ infra-deploy/
     └── README.md                  # Catatan konfigurasi MQTT perangkat Tasmota
 ```
 
-## Memasang Sebagian Modul
+## Instalasi Cepat (STB / Server Target)
+
+Jalankan perintah berikut di mesin target (Armbian / Ubuntu / Debian):
+
+```bash
+# Unduh dan jalankan wizard instalasi interaktif
+curl -fsSL https://raw.githubusercontent.com/gumpalan/infra-deploy/main/scripts/install.sh | bash
+```
+
+Installer akan memandu pemilihan modul, webserver, database, konfigurasi `.env`, dan mengunduh binary release langsung ke `~/.gumpalan/`.
+
+Setelah selesai, kelola service menggunakan CLI:
+```bash
+gumpalan status
+gumpalan log iot
+gumpalan iot device list
+```
+
+Dokumentasi lengkap: baca [docs/OPERASIONAL.md](docs/OPERASIONAL.md).
+
+---
+
+## Struktur Direktori
 
 Arsitektur Nginx dan backend dirancang modular:
 

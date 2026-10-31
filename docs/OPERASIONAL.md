@@ -107,59 +107,47 @@ gumpalan restart all
 gumpalan config iot
 ```
 
-### Manajemen User (svc-auth)
+### 1. Modul svc-auth (Autentikasi, Perangkat Klien, Pengguna, Role)
 
 ```bash
-# Daftar seluruh user
-gumpalan auth user list
+# Persetujuan Perangkat Klien (Smartphone Flutter / Hardware Token)
+gumpalan auth device list                     # Tampilkan perangkat terdaftar (pending / approved)
+gumpalan auth device approve <device_id>      # Setujui perangkat klien agar mendapatkan token aktif
+gumpalan auth device revoke  <device_id>      # Cabut otorisasi perangkat (hapus semua token sesi)
 
-# Detail user tertentu
-gumpalan auth user show usr_abc123
+# Manajemen Pengguna
+gumpalan auth user list                       # Daftar seluruh akun pengguna & perannya
+gumpalan auth user create <user> <pass> [role] [nama]  # Buat user baru langsung ke DB
+gumpalan auth user reset-password <user> <pass_baru>   # Reset kata sandi user
 
-# Hapus user
-gumpalan auth user delete usr_abc123
+# Manajemen Peran & Modul yang Diizinkan (RBAC Gateway)
+gumpalan auth role list                       # Tampilkan role beserta modul yang boleh diakses
+gumpalan auth role create <nama> <modul_koma> [deskripsi]
+# Contoh: gumpalan auth role create operator iot,camera "Operator Lapangan"
 ```
 
-### Manajemen Perangkat IoT (svc-iot)
+### 2. Modul svc-iot (Perangkat IoT Fisik, Hak Akses Kontrol, Otomasi, Riwayat)
 
 ```bash
-# Daftar semua perangkat yang terdaftar
+# Daftar Perangkat IoT Fisik (dibaca dari devices.yaml)
 gumpalan iot device list
 
-# Detail perangkat beserta channel-nya
-gumpalan iot device show living-room-sensor
+# Hak Akses Kontrol Perangkat (Sharing & Granular Permission)
+gumpalan iot perm list                        # Tampilkan semua baris izin kontrol
+gumpalan iot perm list living-room-sensor     # Tampilkan izin khusus perangkat tertentu
+gumpalan iot perm grant living-room-sensor usr_keluarga123            # Beri izin kontrol penuh ke user
+gumpalan iot perm grant living-room-sensor role_operator --role       # Beri izin ke seluruh user dengan role tertentu
+gumpalan iot perm grant living-room-sensor usr_tamu --readonly        # Beri izin hanya-baca (monitoring)
+gumpalan iot perm revoke <perm_id>            # Cabut baris izin
 
-# Setujui perangkat baru yang statusnya pending
-gumpalan iot device approve esp32-kamar
+# Aturan Otomasi Sensor-Aktuator
+gumpalan iot rule list                        # Daftar aturan otomasi yang aktif/nonaktif
+gumpalan iot rule toggle <rule_id> [on|off]   # Aktifkan atau nonaktifkan aturan otomasi
+gumpalan iot rule delete <rule_id>            # Hapus aturan otomasi
 
-# Cabut akses perangkat (device tidak bisa publish/subscribe lagi)
-gumpalan iot device revoke esp32-kamar
-
-# Hapus total perangkat dari database
-gumpalan iot device delete esp32-kamar
-```
-
-### Manajemen Izin Perangkat (Sharing Antar-Pengguna)
-
-```bash
-# Lihat siapa saja yang punya akses ke perangkat
-gumpalan iot device perm list esp32-kamar
-
-# Beri akses perangkat ke user lain
-gumpalan iot device perm grant esp32-kamar usr_keluarga456
-
-# Cabut akses user dari perangkat
-gumpalan iot device perm revoke esp32-kamar usr_keluarga456
-```
-
-### Cek Riwayat Data (History)
-
-```bash
-# Lihat 20 log sensor terakhir
-gumpalan iot history sensor living-room-sensor temperature
-
-# Lihat 20 log aktivasi aktuator terakhir (siapa yang menyalakan, kapan, dsb)
-gumpalan iot history actuator lampu-kamar power
+# Cek Riwayat Data (History)
+gumpalan iot history sensor <device_id> [channel_id]    # 20 log metrik sensor terakhir (misal suhu)
+gumpalan iot history actuator <device_id> [channel_id]  # 20 log aktivasi saklar/aktuator terakhir
 ```
 
 ---

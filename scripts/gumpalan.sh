@@ -1,311 +1,257 @@
 #!/usr/bin/env bash
 # =============================================================================
-# gumpalan — CLI helper untuk operasi sehari-hari di server
-# Pasang: sudo cp gumpalan.sh /usr/local/bin/gumpalan && sudo chmod +x /usr/local/bin/gumpalan
+# gumpalan — CLI helper administrasi server Gumpalan Super App
 # =============================================================================
-set -euo pipefail
+set -uo pipefail
 
 GUMPALAN_HOME="${HOME}/.gumpalan"
 LOG_DIR="${GUMPALAN_HOME}/logs"
 CONFIG_DIR="${GUMPALAN_HOME}/config"
+DATA_DIR="${GUMPALAN_HOME}/data"
 
 RED=$'\033[0;31m'; GREEN=$'\033[0;32m'; YELLOW=$'\033[1;33m'
 CYAN=$'\033[0;36m'; BOLD=$'\033[1m'; RESET=$'\033[0m'
 
-info()    { echo -e "${CYAN}→${RESET} $*"; }
-success() { echo -e "${GREEN}✓${RESET} $*"; }
-warn()    { echo -e "${YELLOW}!${RESET} $*"; }
-die()     { echo -e "${RED}✗${RESET} $*" >&2; exit 1; }
+info()    { echo -e "  ${CYAN}→${RESET} $*"; }
+success() { echo -e "  ${GREEN}✓${RESET} $*"; }
+warn()    { echo -e "  ${YELLOW}!${RESET} $*"; }
+die()     { echo -e "  ${RED}✗${RESET} $*" >&2; exit 1; }
 
 usage() {
     cat <<EOF
 
-${BOLD}gumpalan${RESET} — CLI helper Gumpalan Super App
+${BOLD}gumpalan${RESET} — CLI helper Administrasi Gumpalan Super App
 
 ${BOLD}PENGGUNAAN${RESET}
-  gumpalan <perintah> [argumen]
+  gumpalan <perintah> [sub-perintah] [argumen...]
 
 ${BOLD}PERINTAH UMUM${RESET}
-  status                    Cek status semua service Gumpalan
-  log <modul>               Ikuti log real-time (auth | iot)
-  restart <modul>           Restart service (auth | iot | all)
-  stop <modul>              Stop service
-  config <modul>            Buka file .env di editor
+  status                             Cek status service (systemd)
+  log <auth|iot>                     Pantau log real-time (tail -f)
+  restart <auth|iot|all>             Restart service
+  stop <auth|iot|all>                Hentikan service
+  config <auth|iot|devices>          Buka berkas konfigurasi di editor
 
-${BOLD}AUTH — Manajemen Pengguna${RESET}
-  auth user list            Daftar semua user terdaftar
-  auth user show <id>       Detail satu user
-  auth user delete <id>     Hapus user
+${BOLD}MODUL AUTH (svc-auth)${RESET}
+  ${CYAN}Persetujuan Perangkat Klien (Smartphone / Hardware Token):${RESET}
+    auth device list                 Daftar perangkat klien (pending / approved)
+    auth device approve <device_id>  Setujui perangkat klien agar dapat token aktif
+    auth device revoke  <device_id>  Cabut otorisasi perangkat & hapus token sesi
 
-${BOLD}IOT — Manajemen Perangkat${RESET}
-  iot device list           Daftar semua perangkat IoT
-  iot device show <id>      Detail perangkat + channel
-  iot device add            Tambah perangkat baru (interaktif)
-  iot device delete <id>    Hapus perangkat
+  ${CYAN}Manajemen Akun Pengguna:${RESET}
+    auth user list                   Daftar pengguna terdaftar beserta role
+    auth user create <user> <pass> [role] [nama]
+                                     Buat pengguna baru langsung ke basis data
+    auth user reset-password <user> <new_password>
+                                     Reset kata sandi pengguna
 
-${BOLD}IOT — Perizinan Perangkat${RESET}
-  iot device approve <device_id>        Setujui perangkat pending
-  iot device revoke  <device_id>        Cabut akses perangkat
-  iot device perm list   <device_id>    Lihat daftar izin user di perangkat
-  iot device perm grant  <device_id> <user_id>   Beri izin user ke perangkat
-  iot device perm revoke <device_id> <user_id>   Cabut izin user
+  ${CYAN}Manajemen Peran (RBAC):${RESET}
+    auth role list                   Daftar role dan modul yang diizinkan
+    auth role create <nama> <modul_koma> [deskripsi]
+                                     Contoh: auth role create operator iot "Operator IoT"
 
-${BOLD}IOT — History Data${RESET}
-  iot history sensor   <device_id> [channel_id]  Lihat log sensor terakhir
-  iot history actuator <device_id> [channel_id]  Lihat log aktivasi aktuator
+${BOLD}MODUL IOT (svc-iot)${RESET}
+  ${CYAN}Daftar Perangkat IoT Fisik:${RESET}
+    iot device list                  Daftar perangkat & channel dari devices.yaml
 
-${BOLD}CONTOH${RESET}
-  gumpalan status
-  gumpalan log iot
-  gumpalan iot device list
-  gumpalan iot device approve esp32-living-room
-  gumpalan iot device perm grant esp32-living-room usr_abc123
-  gumpalan iot history sensor living-room-sensor temperature
+  ${CYAN}Izin Kontrol Perangkat (Sharing Antar-Pengguna):${RESET}
+    iot perm list [device_id]        Daftar izin akses perangkat
+    iot perm grant <device_id> <user_id|role> [--role] [--readonly]
+                                     Beri izin kontrol perangkat ke user/role
+    iot perm revoke <perm_id>        Cabut baris izin akses
+
+  ${CYAN}Aturan Otomasi:${RESET}
+    iot rule list                    Daftar aturan otomasi sensor-aktuator
+    iot rule toggle <rule_id> [on|off]
+                                     Aktifkan / nonaktifkan aturan otomasi
+    iot rule delete <rule_id>        Hapus aturan otomasi
+
+  ${CYAN}Riwayat Data (History):${RESET}
+    iot history sensor   <device_id> [channel_id]  Lihat log metrik sensor terakhir
+    iot history actuator <device_id> [channel_id]  Lihat log aktivasi aktuator
 
 EOF
     exit 0
 }
 
-# Baca port dari env file
-get_port() {
-    local mod="$1"
-    local env_file="${CONFIG_DIR}/${mod}.env"
-    [[ -f "$env_file" ]] && grep -E '^PORT=' "$env_file" | cut -d= -f2 | tr -d ' ' || echo ""
-}
+# ---------------------------------------------------------------------------
+# Runner biner internal dengan .env termuat
+# ---------------------------------------------------------------------------
+run_auth_bin() {
+    local bin="${GUMPALAN_HOME}/bin/svc-auth/bin/auth"
+    [[ -f "$bin" ]] || bin="${GUMPALAN_HOME}/bin/svc-auth/auth"
+    [[ -f "$bin" ]] || die "Binary svc-auth tidak ditemukan di ${GUMPALAN_HOME}/bin/svc-auth/"
 
-BASE_AUTH="http://127.0.0.1:$(get_port auth)"
-BASE_IOT="http://127.0.0.1:$(get_port iot)"
-
-# Ambil token CLI internal dari svc-auth (jika ada endpoint internal)
-# Untuk sekarang: baca INTERNAL_TOKEN dari auth.env jika tersedia
-get_internal_token() {
     local env_file="${CONFIG_DIR}/auth.env"
-    [[ -f "$env_file" ]] && grep -E '^INTERNAL_CLI_TOKEN=' "$env_file" | cut -d= -f2 | tr -d ' ' || echo ""
+    if [[ -f "$env_file" ]]; then
+        (
+            set -a
+            # shellcheck disable=SC1090
+            source "$env_file"
+            set +a
+            "$bin" "$@"
+        )
+    else
+        "$bin" "$@"
+    fi
 }
 
-INTERNAL_TOKEN="$(get_internal_token)"
-AUTH_HEADER=""
-[[ -n "$INTERNAL_TOKEN" ]] && AUTH_HEADER="Authorization: Bearer ${INTERNAL_TOKEN}"
+run_iot_bin() {
+    local bin="${GUMPALAN_HOME}/bin/svc-iot/bin/iot"
+    [[ -f "$bin" ]] || bin="${GUMPALAN_HOME}/bin/svc-iot/iot"
+    [[ -f "$bin" ]] || die "Binary svc-iot tidak ditemukan di ${GUMPALAN_HOME}/bin/svc-iot/"
 
-call_api() {
-    local method="$1" url="$2" data="${3:-}"
-    local args=(-fsSL -X "$method")
-    [[ -n "$AUTH_HEADER" ]] && args+=(-H "$AUTH_HEADER")
-    args+=(-H "Content-Type: application/json")
-    [[ -n "$data" ]] && args+=(-d "$data")
-    curl "${args[@]}" "$url"
+    local env_file="${CONFIG_DIR}/iot.env"
+    if [[ -f "$env_file" ]]; then
+        (
+            set -a
+            # shellcheck disable=SC1090
+            source "$env_file"
+            set +a
+            "$bin" "$@"
+        )
+    else
+        "$bin" "$@"
+    fi
 }
 
 # ---------------------------------------------------------------------------
-# status
+# Perintah Umum
 # ---------------------------------------------------------------------------
 cmd_status() {
     echo -e "\n${BOLD}Status Service Gumpalan${RESET}\n"
     for svc in gumpalan-auth gumpalan-iot; do
         if systemctl is-active --quiet "$svc" 2>/dev/null; then
-            echo -e "  ${GREEN}●${RESET} ${svc}  ${GREEN}running${RESET}"
+            echo -e "  ${GREEN}●${RESET} ${svc}  ${GREEN}running (aktif)${RESET}"
         elif systemctl list-unit-files --quiet "$svc.service" &>/dev/null; then
-            echo -e "  ${RED}●${RESET} ${svc}  ${RED}stopped${RESET}"
+            echo -e "  ${RED}●${RESET} ${svc}  ${RED}stopped (berhenti)${RESET}"
         else
-            echo -e "  ${YELLOW}○${RESET} ${svc}  ${YELLOW}not installed${RESET}"
+            echo -e "  ${YELLOW}○${RESET} ${svc}  ${YELLOW}not installed (belum terpasang)${RESET}"
         fi
     done
     echo
 }
 
-# ---------------------------------------------------------------------------
-# log
-# ---------------------------------------------------------------------------
 cmd_log() {
     local mod="${1:-}"
     [[ -z "$mod" ]] && die "Tentukan modul: gumpalan log <auth|iot>"
     local log_file="${LOG_DIR}/${mod}.log"
-    [[ -f "$log_file" ]] || die "Log tidak ditemukan: ${log_file}"
-    info "Ikuti log ${mod} (Ctrl+C untuk berhenti)..."
+    [[ -f "$log_file" ]] || die "File log tidak ditemukan: ${log_file}"
+    info "Mengikuti log ${mod} (tekan Ctrl+C untuk keluar)..."
     tail -f "$log_file"
 }
 
-# ---------------------------------------------------------------------------
-# restart / stop
-# ---------------------------------------------------------------------------
 cmd_restart() {
     local mod="${1:-all}"
     if [[ "$mod" == "all" ]]; then
-        sudo systemctl restart gumpalan-auth gumpalan-iot
-        success "Semua service di-restart."
+        sudo systemctl restart gumpalan-auth gumpalan-iot 2>/dev/null || true
+        success "Semua service Gumpalan berhasil di-restart."
     else
         sudo systemctl restart "gumpalan-${mod}"
-        success "gumpalan-${mod} di-restart."
+        success "gumpalan-${mod} berhasil di-restart."
     fi
 }
 
 cmd_stop() {
     local mod="${1:-}"
     [[ -z "$mod" ]] && die "Tentukan modul: gumpalan stop <auth|iot|all>"
-    [[ "$mod" == "all" ]] && mod="gumpalan-auth gumpalan-iot"
-    sudo systemctl stop $mod
-    success "Dihentikan."
+    if [[ "$mod" == "all" ]]; then
+        sudo systemctl stop gumpalan-auth gumpalan-iot 2>/dev/null || true
+        success "Semua service Gumpalan dihentikan."
+    else
+        sudo systemctl stop "gumpalan-${mod}"
+        success "Service gumpalan-${mod} dihentikan."
+    fi
 }
 
-# ---------------------------------------------------------------------------
-# config
-# ---------------------------------------------------------------------------
 cmd_config() {
     local mod="${1:-}"
-    [[ -z "$mod" ]] && die "Tentukan file: gumpalan config <auth|iot|devices>"
+    [[ -z "$mod" ]] && die "Tentukan berkas: gumpalan config <auth|iot|devices>"
     local target_file=""
     case "$mod" in
-        devices|devices.yaml)
-            target_file="${CONFIG_DIR}/devices.yaml"
-            ;;
-        auth|auth.env)
-            target_file="${CONFIG_DIR}/auth.env"
-            ;;
-        iot|iot.env)
-            target_file="${CONFIG_DIR}/iot.env"
-            ;;
-        *)
-            target_file="${CONFIG_DIR}/${mod}"
-            ;;
+        devices|devices.yaml) target_file="${CONFIG_DIR}/devices.yaml" ;;
+        auth|auth.env)       target_file="${CONFIG_DIR}/auth.env" ;;
+        iot|iot.env)         target_file="${CONFIG_DIR}/iot.env" ;;
+        *)                   target_file="${CONFIG_DIR}/${mod}" ;;
     esac
-    [[ -f "$target_file" ]] || die "File tidak ditemukan: ${target_file}"
+    [[ -f "$target_file" ]] || die "Berkas tidak ditemukan: ${target_file}"
     "${EDITOR:-nano}" "$target_file"
 }
 
 # ---------------------------------------------------------------------------
-# auth user
+# Dispatcher auth (meneruskan langsung ke biner svc-auth CLI)
 # ---------------------------------------------------------------------------
-cmd_auth_user() {
-    local sub="${1:-list}"; shift || true
-    case "$sub" in
-        list)
-            call_api GET "${BASE_AUTH}/auth/v1/users" | python3 -m json.tool 2>/dev/null || \
-            call_api GET "${BASE_AUTH}/auth/v1/users"
-            ;;
-        show)
-            local id="${1:-}"; [[ -z "$id" ]] && die "Perlu user ID"
-            call_api GET "${BASE_AUTH}/auth/v1/users/${id}" | python3 -m json.tool 2>/dev/null || \
-            call_api GET "${BASE_AUTH}/auth/v1/users/${id}"
-            ;;
-        delete)
-            local id="${1:-}"; [[ -z "$id" ]] && die "Perlu user ID"
-            echo -ne "${YELLOW}Hapus user ${id}? [y/N]:${RESET} "; read -r c
-            [[ "$c" =~ ^[Yy]$ ]] || { info "Dibatalkan."; return; }
-            call_api DELETE "${BASE_AUTH}/auth/v1/users/${id}"
-            success "User ${id} dihapus."
-            ;;
-        *) die "Sub-perintah tidak dikenal: auth user ${sub}" ;;
-    esac
+cmd_auth() {
+    [[ $# -eq 0 ]] && { run_auth_bin help; return; }
+    run_auth_bin "$@"
 }
 
 # ---------------------------------------------------------------------------
-# iot device
+# Dispatcher iot (meneruskan ke biner svc-iot CLI & query history)
 # ---------------------------------------------------------------------------
-cmd_iot_device() {
-    local sub="${1:-list}"; shift || true
+cmd_iot() {
+    [[ $# -eq 0 ]] && { run_iot_bin help; return; }
+    local sub="$1"; shift || true
+
     case "$sub" in
-        list)
-            call_api GET "${BASE_IOT}/iot/v1/devices" | python3 -m json.tool 2>/dev/null || \
-            call_api GET "${BASE_IOT}/iot/v1/devices"
+        device|perm|permission|rule|automation)
+            run_iot_bin "$sub" "$@"
             ;;
-        show)
-            local id="${1:-}"; [[ -z "$id" ]] && die "Perlu device ID"
-            call_api GET "${BASE_IOT}/iot/v1/devices/${id}" | python3 -m json.tool 2>/dev/null || \
-            call_api GET "${BASE_IOT}/iot/v1/devices/${id}"
+        history)
+            cmd_iot_history "$@"
             ;;
-        approve)
-            local id="${1:-}"; [[ -z "$id" ]] && die "Perlu device ID"
-            call_api POST "${BASE_IOT}/iot/v1/devices/${id}/approve" | python3 -m json.tool 2>/dev/null
-            success "Perangkat ${id} disetujui."
+        *)
+            run_iot_bin "$sub" "$@"
             ;;
-        revoke)
-            local id="${1:-}"; [[ -z "$id" ]] && die "Perlu device ID"
-            echo -ne "${YELLOW}Cabut akses perangkat ${id}? [y/N]:${RESET} "; read -r c
-            [[ "$c" =~ ^[Yy]$ ]] || { info "Dibatalkan."; return; }
-            call_api POST "${BASE_IOT}/iot/v1/devices/${id}/revoke"
-            success "Akses perangkat ${id} dicabut."
-            ;;
-        delete)
-            local id="${1:-}"; [[ -z "$id" ]] && die "Perlu device ID"
-            echo -ne "${YELLOW}Hapus perangkat ${id}? [y/N]:${RESET} "; read -r c
-            [[ "$c" =~ ^[Yy]$ ]] || { info "Dibatalkan."; return; }
-            call_api DELETE "${BASE_IOT}/iot/v1/devices/${id}"
-            success "Perangkat ${id} dihapus."
-            ;;
-        perm)
-            local psub="${1:-list}"; shift || true
-            case "$psub" in
-                list)
-                    local did="${1:-}"; [[ -z "$did" ]] && die "Perlu device ID"
-                    call_api GET "${BASE_IOT}/iot/v1/devices/${did}/permissions" | python3 -m json.tool 2>/dev/null || \
-                    call_api GET "${BASE_IOT}/iot/v1/devices/${did}/permissions"
-                    ;;
-                grant)
-                    local did="${1:-}" uid="${2:-}"
-                    [[ -z "$did" || -z "$uid" ]] && die "Perlu device ID dan user ID"
-                    call_api POST "${BASE_IOT}/iot/v1/devices/${did}/permissions" \
-                        "{\"user_id\":\"${uid}\"}" | python3 -m json.tool 2>/dev/null
-                    success "Izin diberikan: user ${uid} → perangkat ${did}."
-                    ;;
-                revoke)
-                    local did="${1:-}" uid="${2:-}"
-                    [[ -z "$did" || -z "$uid" ]] && die "Perlu device ID dan user ID"
-                    echo -ne "${YELLOW}Cabut izin user ${uid} dari perangkat ${did}? [y/N]:${RESET} "; read -r c
-                    [[ "$c" =~ ^[Yy]$ ]] || { info "Dibatalkan."; return; }
-                    call_api DELETE "${BASE_IOT}/iot/v1/devices/${did}/permissions/${uid}"
-                    success "Izin user ${uid} dari perangkat ${did} dicabut."
-                    ;;
-                *) die "Sub-perintah tidak dikenal: iot device perm ${psub}" ;;
-            esac
-            ;;
-        *) die "Sub-perintah tidak dikenal: iot device ${sub}" ;;
     esac
 }
 
-# ---------------------------------------------------------------------------
-# iot history
-# ---------------------------------------------------------------------------
 cmd_iot_history() {
-    local sub="${1:-}"; shift || true
-    [[ -z "$sub" ]] && die "Tentukan tipe: gumpalan iot history <sensor|actuator> <device_id> [channel_id]"
-    local did="${1:-}"; shift || true
-    local cid="${1:-}"; shift || true
-    [[ -z "$did" ]] && die "Perlu device ID"
+    local type="${1:-}"; shift || true
+    local dev_id="${1:-}"; shift || true
+    local ch_id="${1:-}"; shift || true
 
-    local url="${BASE_IOT}/iot/v1/devices/${did}/history/${sub}?limit=20"
-    [[ -n "$cid" ]] && url="${url}&channel=${cid}"
+    [[ -z "$type" || -z "$dev_id" ]] && die "Penggunaan: gumpalan iot history <sensor|actuator> <device_id> [channel_id]"
 
-    call_api GET "$url" | python3 -m json.tool 2>/dev/null || call_api GET "$url"
+    local db_file="${DATA_DIR}/iot.db"
+    if command -v sqlite3 &>/dev/null && [[ -f "$db_file" ]]; then
+        if [[ "$type" == "sensor" ]]; then
+            local sql="SELECT datetime(recorded_at, 'unixepoch', 'localtime') AS waktu, channel_id, value, unit FROM iot_sensor_logs WHERE device_id = '${dev_id}'"
+            [[ -n "$ch_id" ]] && sql="${sql} AND channel_id = '${ch_id}'"
+            sql="${sql} ORDER BY recorded_at DESC LIMIT 20;"
+            sqlite3 -header -column "$db_file" "$sql"
+        else
+            local sql="SELECT datetime(recorded_at, 'unixepoch', 'localtime') AS waktu, channel_id, value, source, COALESCE(actor_name, actor_id, '-') AS actor FROM iot_actuator_logs WHERE device_id = '${dev_id}'"
+            [[ -n "$ch_id" ]] && sql="${sql} AND channel_id = '${ch_id}'"
+            sql="${sql} ORDER BY recorded_at DESC LIMIT 20;"
+            sqlite3 -header -column "$db_file" "$sql"
+        fi
+    else
+        # Fallback via HTTP API internal
+        local env_file="${CONFIG_DIR}/iot.env"
+        local port="8002"
+        [[ -f "$env_file" ]] && port=$(grep -E '^PORT=' "$env_file" | cut -d= -f2 | tr -d ' ' || echo "8002")
+        local url="http://127.0.0.1:${port}/iot/v1/devices/${dev_id}/history/${type}?limit=20"
+        [[ -n "$ch_id" ]] && url="${url}&channel=${ch_id}"
+        curl -fsSL "$url" | python3 -m json.tool 2>/dev/null || curl -fsSL "$url"
+    fi
 }
 
 # ---------------------------------------------------------------------------
-# Router utama
+# Entry point
 # ---------------------------------------------------------------------------
 [[ $# -eq 0 ]] && usage
 
 cmd="$1"; shift || true
 
 case "$cmd" in
-    status)         cmd_status ;;
-    log)            cmd_log "$@" ;;
-    restart)        cmd_restart "$@" ;;
-    stop)           cmd_stop "$@" ;;
-    config)         cmd_config "$@" ;;
-    auth)
-        sub="${1:-}"; shift || true
-        case "$sub" in
-            user) cmd_auth_user "$@" ;;
-            *)    die "Sub-perintah tidak dikenal: auth ${sub}" ;;
-        esac
-        ;;
-    iot)
-        sub="${1:-}"; shift || true
-        case "$sub" in
-            device)  cmd_iot_device "$@" ;;
-            history) cmd_iot_history "$@" ;;
-            *)       die "Sub-perintah tidak dikenal: iot ${sub}" ;;
-        esac
-        ;;
-    help|--help|-h) usage ;;
-    *)              die "Perintah tidak dikenal: ${cmd}. Coba: gumpalan help" ;;
+    status)           cmd_status ;;
+    log)              cmd_log "$@" ;;
+    restart)          cmd_restart "$@" ;;
+    stop)             cmd_stop "$@" ;;
+    config)           cmd_config "$@" ;;
+    auth)             cmd_auth "$@" ;;
+    iot)              cmd_iot "$@" ;;
+    help|--help|-h)   usage ;;
+    *)                die "Perintah tidak dikenal: ${cmd}. Jalankan 'gumpalan help' untuk panduan." ;;
 esac

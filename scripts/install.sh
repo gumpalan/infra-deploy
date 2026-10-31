@@ -34,6 +34,15 @@ warn()    { echo -e "  ${YELLOW}!${RESET} $*"; }
 error()   { echo -e "  ${RED}✗${RESET} $*" >&2; }
 die()     { error "$*"; exit 1; }
 
+# Helper membaca input interaktif, mendukung pipe 'curl ... | bash' via /dev/tty
+_read() {
+    if [[ -e /dev/tty ]]; then
+        read "$@" < /dev/tty || true
+    else
+        read "$@" || true
+    fi
+}
+
 ask() {
     # ask "Pertanyaan" default_value → hasil di $REPLY
     local prompt="$1" default="${2:-}"
@@ -42,14 +51,14 @@ ask() {
     else
         echo -ne "  ${BOLD}${prompt}${RESET}: "
     fi
-    read -r REPLY
+    _read -r REPLY
     [[ -z "$REPLY" ]] && REPLY="$default"
 }
 
 ask_secret() {
     local prompt="$1"
     echo -ne "  ${BOLD}${prompt}${RESET}: "
-    read -rs REPLY
+    _read -rs REPLY
     echo
 }
 
@@ -69,7 +78,7 @@ menu_single() {
     echo
     while true; do
         echo -ne "  Pilih [1-${#items[@]}]: "
-        read -r choice
+        _read -r choice
         if [[ "$choice" =~ ^[0-9]+$ ]] && (( choice >= 1 && choice <= ${#items[@]} )); then
             MENU_RESULT="${items[$((choice-1))]}"
             return
@@ -100,7 +109,7 @@ menu_multi() {
         done
         echo
         echo -ne "  Toggle [nomor] atau ENTER: "
-        read -r choice
+        _read -r choice
         if [[ -z "$choice" ]]; then
             # Validasi minimal satu dipilih
             local any=0
@@ -693,7 +702,7 @@ main() {
     echo "    Lokasi   : ${GUMPALAN_HOME}"
     echo
     echo -ne "  Lanjutkan? [y/N]: "
-    read -r confirm
+    _read -r confirm
     [[ "$confirm" =~ ^[Yy]$ ]] || { info "Instalasi dibatalkan."; exit 0; }
 
     # ── 5. Eksekusi ─────────────────────────────────────────────────────────

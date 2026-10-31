@@ -6,7 +6,7 @@
 #   -- atau --
 #   bash install.sh
 # =============================================================================
-set -euo pipefail
+set -uo pipefail
 
 # ---------------------------------------------------------------------------
 # Warna dan helper UI
@@ -19,7 +19,7 @@ BOLD='\033[1m'
 RESET='\033[0m'
 
 print_header() {
-    clear
+    clear 2>/dev/null || true
     echo -e "${CYAN}${BOLD}"
     echo "  ╔══════════════════════════════════════════════════╗"
     echo "  ║           G U M P A L A N  Installer            ║"
@@ -36,8 +36,10 @@ die()     { error "$*"; exit 1; }
 
 # Helper membaca input interaktif, mendukung pipe 'curl ... | bash' via /dev/tty
 _read() {
-    if [[ -e /dev/tty ]]; then
-        read "$@" < /dev/tty || true
+    if [ -t 0 ]; then
+        read "$@" || true
+    elif [ -e /dev/tty ] && [ -r /dev/tty ]; then
+        read "$@" < /dev/tty 2>/dev/null || true
     else
         read "$@" || true
     fi
@@ -73,13 +75,13 @@ menu_single() {
     local i=1
     for item in "${items[@]}"; do
         echo "    ${BOLD}${i})${RESET} ${item}"
-        ((i++))
+        i=$((i + 1))
     done
     echo
     while true; do
         echo -ne "  Pilih [1-${#items[@]}]: "
         _read -r choice
-        if [[ "$choice" =~ ^[0-9]+$ ]] && (( choice >= 1 && choice <= ${#items[@]} )); then
+        if [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -le "${#items[@]}" ]; then
             MENU_RESULT="${items[$((choice-1))]}"
             return
         fi
@@ -94,18 +96,21 @@ menu_multi() {
     local title="$1"; shift
     local items=("$@")
     local selected=()
-    for _ in "${items[@]}"; do selected+=(0); done
+    # Default: semua opsi dicentang (pre-selected)
+    for _ in "${items[@]}"; do selected+=(1); done
 
     while true; do
         echo
         echo -e "  ${BOLD}${title}${RESET}"
-        echo -e "  ${CYAN}(ketik nomor untuk toggle, ENTER jika sudah selesai)${RESET}"
+        echo -e "  ${CYAN}(ketik nomor untuk toggle centang, tekan ENTER jika sudah sesuai)${RESET}"
         local i=0
         for item in "${items[@]}"; do
             local mark="  "
-            [[ "${selected[$i]}" == "1" ]] && mark="${GREEN}✓${RESET}"
+            if [ "${selected[$i]}" = "1" ]; then
+                mark="${GREEN}✓${RESET}"
+            fi
             echo -e "    ${BOLD}$((i+1)))${RESET} [${mark}] ${item}"
-            ((i++))
+            i=$((i + 1))
         done
         echo
         echo -ne "  Toggle [nomor] atau ENTER: "
@@ -113,16 +118,25 @@ menu_multi() {
         if [[ -z "$choice" ]]; then
             # Validasi minimal satu dipilih
             local any=0
-            for s in "${selected[@]}"; do [[ "$s" == "1" ]] && any=1; done
-            if [[ $any -eq 0 ]]; then
+            for s in "${selected[@]}"; do
+                if [ "$s" = "1" ]; then
+                    any=1
+                    break
+                fi
+            done
+            if [ "$any" -eq 0 ]; then
                 warn "Pilih minimal satu modul."
                 continue
             fi
             break
         fi
-        if [[ "$choice" =~ ^[0-9]+$ ]] && (( choice >= 1 && choice <= ${#items[@]} )); then
+        if [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -le "${#items[@]}" ]; then
             local idx=$((choice-1))
-            [[ "${selected[$idx]}" == "0" ]] && selected[$idx]=1 || selected[$idx]=0
+            if [ "${selected[$idx]}" = "0" ]; then
+                selected[$idx]=1
+            else
+                selected[$idx]=0
+            fi
         else
             warn "Nomor tidak valid."
         fi
@@ -131,8 +145,10 @@ menu_multi() {
     MENU_SELECTED=()
     local i=0
     for item in "${items[@]}"; do
-        [[ "${selected[$i]}" == "1" ]] && MENU_SELECTED+=("$item")
-        ((i++))
+        if [ "${selected[$i]}" = "1" ]; then
+            MENU_SELECTED+=("$item")
+        fi
+        i=$((i + 1))
     done
 }
 
@@ -733,11 +749,22 @@ main() {
     start_services "${all_modules[@]}"
     print_summary "${all_modules[@]}"
 
-    # Pasang CLI helper jika ada
-    if [[ -f "$(dirname "$0")/gumpalan.sh" ]]; then
-        sudo cp "$(dirname "$0")/gumpalan.sh" /usr/local/bin/gumpalan
+    # Pasang CLI helper gumpalan
+    info "Memasang CLI helper gumpalan..."
+    local cli_src="$(dirname "$0")/gumpalan.sh"
+    if [[ -f "$cli_src" ]]; then
+        sudo cp "$cli_src" /usr/local/bin/gumpalan
         sudo chmod +x /usr/local/bin/gumpalan
         success "CLI 'gumpalan' terpasang di /usr/local/bin/gumpalan"
+    else
+        local cli_url="https://raw.githubusercontent.com/gumpalan/infra-deploy/main/scripts/gumpalan.sh"
+        if curl -fsSL "$cli_url" -o /tmp/gumpalan.sh 2>/dev/null; then
+            sudo mv /tmp/gumpalan.sh /usr/local/bin/gumpalan
+            sudo chmod +x /usr/local/bin/gumpalan
+            success "CLI 'gumpalan' terpasang di /usr/local/bin/gumpalan"
+        else
+            warn "Gagal mengunduh helper CLI gumpalan. Silakan pasang manual."
+        fi
     fi
 }
 

@@ -8,13 +8,6 @@
 # =============================================================================
 set -uo pipefail
 
-# Sambungkan input langsung ke terminal jika dijalankan via pipe 'curl ... | bash'
-if [ ! -t 0 ]; then
-    if ( exec 0</dev/tty ) 2>/dev/null; then
-        exec 0</dev/tty
-    fi
-fi
-
 # ---------------------------------------------------------------------------
 # Warna dan helper UI
 # ---------------------------------------------------------------------------
@@ -29,8 +22,8 @@ print_header() {
     clear 2>/dev/null || true
     echo -e "${CYAN}${BOLD}"
     echo "  ╔══════════════════════════════════════════════════╗"
-    echo "  ║             G U M P A L A N  Installer           ║"
-    echo "  ║                 Self-Hosted Setup                ║"
+    echo "  ║           G U M P A L A N  Installer            ║"
+    echo "  ║         Super App IoT Self-Hosted Setup          ║"
     echo "  ╚══════════════════════════════════════════════════╝"
     echo -e "${RESET}"
 }
@@ -41,10 +34,22 @@ warn()    { echo -e "  ${YELLOW}!${RESET} $*"; }
 error()   { echo -e "  ${RED}✗${RESET} $*" >&2; }
 die()     { error "$*"; exit 1; }
 
-# Helper membaca input interaktif dengan fallback aman
-_read() {
-    read "$@" || true
-}
+# Helper membaca input interaktif:
+# Jika dipanggil via pipe 'curl ... | bash', buka fd 3 ke /dev/tty agar fd 0
+# tidak tertutup (mencegah curl exit 23 broken pipe).
+if [ -t 0 ]; then
+    _read() {
+        read "$@" || true
+    }
+elif ( exec 3</dev/tty ) 2>/dev/null; then
+    _read() {
+        read -u 3 "$@" || true
+    }
+else
+    _read() {
+        read "$@" || true
+    }
+fi
 
 ask() {
     # ask "Pertanyaan" default_value → hasil di $REPLY

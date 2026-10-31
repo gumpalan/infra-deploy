@@ -194,29 +194,46 @@ check_deps() {
 # ---------------------------------------------------------------------------
 download_release() {
     local repo="$1" arch="$2" version="$3"
-    local asset_name="${repo}-${arch}.tar.gz"
-    local url
+    local download_url=""
 
-    info "Mengunduh ${repo} versi ${version} (${arch})..."
+    info "Mencari release ${repo} (${arch}, versi: ${version})..."
 
-    if [[ "$version" == "latest" ]]; then
-        url="${RELEASE_API}/${repo}/releases/latest/assets/${asset_name}"
-        # Ambil URL download sesungguhnya via GitHub API
-        local api_url="${RELEASE_API}/${repo}/releases/latest"
-        local download_url
-        download_url=$(curl -fsSL "$api_url" \
-            | grep -o "\"browser_download_url\": *\"[^\"]*${asset_name}\"" \
+    # 1. Coba cari via GitHub Releases API (mendukung nama dengan atau tanpa versi)
+    local api_url="${RELEASE_API}/${repo}/releases/latest"
+    [[ "$version" != "latest" ]] && api_url="${RELEASE_API}/${repo}/releases/tags/${version}"
+
+    local release_json
+    release_json=$(curl -fsSL "$api_url" 2>/dev/null || true)
+
+    if [[ -n "$release_json" ]]; then
+        # Cocokkan URL asset yang mengandung nama repo dan arsitektur .tar.gz
+        download_url=$(echo "$release_json" \
+            | grep -o '"browser_download_url": *"[^"]*"' \
             | sed 's/.*"\(https[^"]*\)".*/\1/' \
-            | head -1)
-        [[ -z "$download_url" ]] && die "Asset ${asset_name} tidak ditemukan di release ${repo}."
-        url="$download_url"
-    else
-        url="${GITHUB_ORG}/${repo}/releases/download/${version}/${asset_name}"
+            | grep "${arch}\.tar\.gz" \
+            | head -1 || true)
     fi
 
+    # 2. Fallback URL langsung jika API gagal / limit
+    if [[ -z "$download_url" ]]; then
+        local candidate_urls=(
+            "${GITHUB_ORG}/${repo}/releases/download/${version}/${repo}-${version}-${arch}.tar.gz"
+            "${GITHUB_ORG}/${repo}/releases/download/${version}/${repo}-${arch}.tar.gz"
+        )
+        for u in "${candidate_urls[@]}"; do
+            if curl -fsIL "$u" &>/dev/null; then
+                download_url="$u"
+                break
+            fi
+        done
+    fi
+
+    [[ -z "$download_url" ]] && die "Asset release untuk ${repo} (${arch}) tidak ditemukan di GitHub Releases."
+
+    info "Mengunduh dari: ${download_url}"
     local tmp_file="${GUMPALAN_HOME}/tmp/${repo}.tar.gz"
     mkdir -p "${GUMPALAN_HOME}/tmp"
-    curl -fsSL -o "$tmp_file" "$url" || die "Gagal unduh ${repo}."
+    curl -fsSL -o "$tmp_file" "$download_url" || die "Gagal unduh ${repo}."
 
     mkdir -p "${BIN_DIR}/${repo}"
     tar -xzf "$tmp_file" -C "${BIN_DIR}/${repo}" || die "Gagal ekstrak ${repo}."

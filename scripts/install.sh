@@ -8,22 +8,29 @@
 # =============================================================================
 set -uo pipefail
 
+# Sambungkan input langsung ke terminal jika dijalankan via pipe 'curl ... | bash'
+if [ ! -t 0 ]; then
+    if ( exec 0</dev/tty ) 2>/dev/null; then
+        exec 0</dev/tty
+    fi
+fi
+
 # ---------------------------------------------------------------------------
 # Warna dan helper UI
 # ---------------------------------------------------------------------------
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-CYAN='\033[0;36m'
-BOLD='\033[1m'
-RESET='\033[0m'
+RED=$'\033[0;31m'
+GREEN=$'\033[0;32m'
+YELLOW=$'\033[1;33m'
+CYAN=$'\033[0;36m'
+BOLD=$'\033[1m'
+RESET=$'\033[0m'
 
 print_header() {
     clear 2>/dev/null || true
     echo -e "${CYAN}${BOLD}"
     echo "  ╔══════════════════════════════════════════════════╗"
-    echo "  ║           G U M P A L A N  Installer            ║"
-    echo "  ║         Super App IoT Self-Hosted Setup          ║"
+    echo "  ║             G U M P A L A N  Installer           ║"
+    echo "  ║                 Self-Hosted Setup                ║"
     echo "  ╚══════════════════════════════════════════════════╝"
     echo -e "${RESET}"
 }
@@ -34,20 +41,15 @@ warn()    { echo -e "  ${YELLOW}!${RESET} $*"; }
 error()   { echo -e "  ${RED}✗${RESET} $*" >&2; }
 die()     { error "$*"; exit 1; }
 
-# Helper membaca input interaktif, mendukung pipe 'curl ... | bash' via /dev/tty
+# Helper membaca input interaktif dengan fallback aman
 _read() {
-    if [ -t 0 ]; then
-        read "$@" || true
-    elif [ -e /dev/tty ] && [ -r /dev/tty ]; then
-        read "$@" < /dev/tty 2>/dev/null || true
-    else
-        read "$@" || true
-    fi
+    read "$@" || true
 }
 
 ask() {
     # ask "Pertanyaan" default_value → hasil di $REPLY
     local prompt="$1" default="${2:-}"
+    REPLY=""
     if [[ -n "$default" ]]; then
         echo -ne "  ${BOLD}${prompt}${RESET} [${default}]: "
     else
@@ -59,6 +61,7 @@ ask() {
 
 ask_secret() {
     local prompt="$1"
+    REPLY=""
     echo -ne "  ${BOLD}${prompt}${RESET}: "
     _read -rs REPLY
     echo
@@ -74,13 +77,15 @@ menu_single() {
     echo -e "  ${BOLD}${title}${RESET}"
     local i=1
     for item in "${items[@]}"; do
-        echo "    ${BOLD}${i})${RESET} ${item}"
+        echo -e "    ${BOLD}${i})${RESET} ${item}"
         i=$((i + 1))
     done
     echo
+    local choice=""
     while true; do
-        echo -ne "  Pilih [1-${#items[@]}]: "
+        echo -ne "  Pilih [1-${#items[@]}] [1]: "
         _read -r choice
+        [[ -z "$choice" ]] && choice="1"
         if [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -le "${#items[@]}" ]; then
             MENU_RESULT="${items[$((choice-1))]}"
             return
@@ -99,6 +104,7 @@ menu_multi() {
     # Default: semua opsi dicentang (pre-selected)
     for _ in "${items[@]}"; do selected+=(1); done
 
+    local choice=""
     while true; do
         echo
         echo -e "  ${BOLD}${title}${RESET}"
@@ -717,8 +723,10 @@ main() {
     echo "    Webserver: ${webserver}"
     echo "    Lokasi   : ${GUMPALAN_HOME}"
     echo
-    echo -ne "  Lanjutkan? [y/N]: "
+    local confirm=""
+    echo -ne "  Lanjutkan? [Y/n]: "
     _read -r confirm
+    [[ -z "$confirm" ]] && confirm="y"
     [[ "$confirm" =~ ^[Yy]$ ]] || { info "Instalasi dibatalkan."; exit 0; }
 
     # ── 5. Eksekusi ─────────────────────────────────────────────────────────
@@ -749,22 +757,11 @@ main() {
     start_services "${all_modules[@]}"
     print_summary "${all_modules[@]}"
 
-    # Pasang CLI helper gumpalan
-    info "Memasang CLI helper gumpalan..."
-    local cli_src="$(dirname "$0")/gumpalan.sh"
-    if [[ -f "$cli_src" ]]; then
-        sudo cp "$cli_src" /usr/local/bin/gumpalan
+    # Pasang CLI helper jika ada
+    if [[ -f "$(dirname "$0")/gumpalan.sh" ]]; then
+        sudo cp "$(dirname "$0")/gumpalan.sh" /usr/local/bin/gumpalan
         sudo chmod +x /usr/local/bin/gumpalan
         success "CLI 'gumpalan' terpasang di /usr/local/bin/gumpalan"
-    else
-        local cli_url="https://raw.githubusercontent.com/gumpalan/infra-deploy/main/scripts/gumpalan.sh"
-        if curl -fsSL "$cli_url" -o /tmp/gumpalan.sh 2>/dev/null; then
-            sudo mv /tmp/gumpalan.sh /usr/local/bin/gumpalan
-            sudo chmod +x /usr/local/bin/gumpalan
-            success "CLI 'gumpalan' terpasang di /usr/local/bin/gumpalan"
-        else
-            warn "Gagal mengunduh helper CLI gumpalan. Silakan pasang manual."
-        fi
     fi
 }
 

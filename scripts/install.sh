@@ -318,6 +318,7 @@ setup_env_iot() {
     ask "HISTORY_RETENTION_DAYS (0 = selamanya)" "0"; local hist_ret="$REPLY"
 
     mkdir -p "$CONFIG_DIR"
+    local dev_yaml="${CONFIG_DIR}/devices.yaml"
     cat > "$env_file" <<EOF
 PORT=${port}
 
@@ -330,6 +331,8 @@ DB_PASSWORD=${db_pass}
 DB_SSLMODE=${db_sslmode}
 DB_AUTO_MIGRATE=true
 
+DEVICES_CONFIG_PATH=${dev_yaml}
+
 MQTT_BROKER=${mqtt_broker}
 MQTT_CLIENT_ID=
 MQTT_USERNAME=${mqtt_user}
@@ -339,6 +342,56 @@ HISTORY_MODE=${hist_mode}
 HISTORY_RETENTION_DAYS=${hist_ret}
 EOF
     success "iot.env ditulis ke ${env_file}"
+
+    # Siapkan devices.yaml jika belum ada
+    if [[ ! -f "$dev_yaml" ]]; then
+        if [[ -f "${BIN_DIR}/svc-iot/config/devices.example.yaml" ]]; then
+            cp "${BIN_DIR}/svc-iot/config/devices.example.yaml" "$dev_yaml"
+        elif [[ -f "${BIN_DIR}/svc-iot/config/devices.yaml" ]]; then
+            cp "${BIN_DIR}/svc-iot/config/devices.yaml" "$dev_yaml"
+        else
+            cat > "$dev_yaml" <<'DEV_EOF'
+devices:
+  - id: "living-room-sensor"
+    name: "Sensor Ruang Tamu"
+    driver: "custom"
+    channels:
+      - id: "temperature"
+        name: "Suhu"
+        direction: "input"
+        topic: "gumpalan/device/living-room/tele/temp"
+        type: "number"
+        unit: "°C"
+        min: 0
+        max: 50
+        ui_hint: "gauge"
+
+      - id: "humidity"
+        name: "Kelembaban"
+        direction: "input"
+        topic: "gumpalan/device/living-room/tele/humidity"
+        type: "number"
+        unit: "%"
+        min: 0
+        max: 100
+        ui_hint: "value_display"
+
+  - id: "lampu-kamar"
+    name: "Lampu Kamar Tidur"
+    driver: "tasmota"
+    topic: "lampu_kamar"
+    channels:
+      - id: "power"
+        name: "Power Lampu"
+        direction: "bidirectional"
+        command_topic: "cmnd/lampu_kamar/POWER"
+        state_topic: "stat/lampu_kamar/POWER"
+        type: "boolean"
+        ui_hint: "toggle"
+DEV_EOF
+        fi
+        success "devices.yaml template disiapkan di ${dev_yaml}"
+    fi
 }
 
 # ---------------------------------------------------------------------------

@@ -152,10 +152,24 @@ cmd_stop() {
 # ---------------------------------------------------------------------------
 cmd_config() {
     local mod="${1:-}"
-    [[ -z "$mod" ]] && die "Tentukan modul: gumpalan config <auth|iot>"
-    local env_file="${CONFIG_DIR}/${mod}.env"
-    [[ -f "$env_file" ]] || die "File tidak ditemukan: ${env_file}"
-    "${EDITOR:-nano}" "$env_file"
+    [[ -z "$mod" ]] && die "Tentukan file: gumpalan config <auth|iot|devices>"
+    local target_file=""
+    case "$mod" in
+        devices|devices.yaml)
+            target_file="${CONFIG_DIR}/devices.yaml"
+            ;;
+        auth|auth.env)
+            target_file="${CONFIG_DIR}/auth.env"
+            ;;
+        iot|iot.env)
+            target_file="${CONFIG_DIR}/iot.env"
+            ;;
+        *)
+            target_file="${CONFIG_DIR}/${mod}"
+            ;;
+    esac
+    [[ -f "$target_file" ]] || die "File tidak ditemukan: ${target_file}"
+    "${EDITOR:-nano}" "$target_file"
 }
 
 # ---------------------------------------------------------------------------

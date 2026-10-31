@@ -222,6 +222,20 @@ download_release() {
     tar -xzf "$tmp_file" -C "${BIN_DIR}/${repo}" || die "Gagal ekstrak ${repo}."
     rm -f "$tmp_file"
 
+    # Normalisasi lokasi binary jika di-pack tanpa subfolder bin/
+    local mod="$repo"
+    [[ "$repo" == "svc-auth" ]] && mod="auth"
+    [[ "$repo" == "svc-iot" ]] && mod="iot"
+
+    if [[ -f "${BIN_DIR}/${repo}/${mod}" && ! -f "${BIN_DIR}/${repo}/bin/${mod}" ]]; then
+        mkdir -p "${BIN_DIR}/${repo}/bin"
+        mv "${BIN_DIR}/${repo}/${mod}" "${BIN_DIR}/${repo}/bin/${mod}"
+    fi
+
+    if [[ -f "${BIN_DIR}/${repo}/bin/${mod}" ]]; then
+        chmod +x "${BIN_DIR}/${repo}/bin/${mod}"
+    fi
+
     success "Binary ${repo} siap di ${BIN_DIR}/${repo}/"
 }
 

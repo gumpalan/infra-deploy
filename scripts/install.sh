@@ -759,15 +759,26 @@ main() {
         skip*)  warn "Konfigurasi webserver dilewati. Lakukan secara manual." ;;
     esac
 
-    start_services "${all_modules[@]}"
-    print_summary "${all_modules[@]}"
-
-    # Pasang CLI helper jika ada
-    if [[ -f "$(dirname "$0")/gumpalan.sh" ]]; then
-        sudo cp "$(dirname "$0")/gumpalan.sh" /usr/local/bin/gumpalan
+    # Pasang CLI helper gumpalan ke /usr/local/bin/gumpalan
+    info "Memasang CLI helper gumpalan..."
+    local cli_src="$(dirname "$0")/gumpalan.sh"
+    if [[ -f "$cli_src" ]]; then
+        sudo cp "$cli_src" /usr/local/bin/gumpalan
         sudo chmod +x /usr/local/bin/gumpalan
         success "CLI 'gumpalan' terpasang di /usr/local/bin/gumpalan"
+    else
+        local cli_url="https://raw.githubusercontent.com/gumpalan/infra-deploy/main/scripts/gumpalan.sh"
+        if curl -fsSL "$cli_url" -o /tmp/gumpalan.sh 2>/dev/null; then
+            sudo mv /tmp/gumpalan.sh /usr/local/bin/gumpalan
+            sudo chmod +x /usr/local/bin/gumpalan
+            success "CLI 'gumpalan' terpasang di /usr/local/bin/gumpalan"
+        else
+            warn "Gagal mengunduh helper CLI gumpalan. Silakan pasang manual."
+        fi
     fi
+
+    start_services "${all_modules[@]}"
+    print_summary "${all_modules[@]}"
 }
 
 main "$@"
